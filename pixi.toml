@@ -13,7 +13,7 @@ pre-commit-run = "pre-commit run -a"
 
 [dependencies]
 python = ">=3.10"
-panel = ">=1.8.3a0"
+panel = ">=1.9.0"
 bokeh = ">=3.8.0"
 packaging = "*"
 watchfiles = "*"
@@ -40,7 +40,7 @@ test-ui = ["py312", "compile", "test-core", "test-ui"]
 build = ["py312", "build", "compile"]
 compile = ["py312", "compile"]
 lint = { features = ["lint"], no-default-feature = true }
-docs = ["py311", "doc"]
+docs = ["py312", "docs"]
 
 # =============================================
 # ================== TEST =====================
@@ -77,34 +77,16 @@ depends-on = ["_install", "_install-ui"]
 # =============================================
 # =================== DOCS ====================
 # =============================================
-[feature.doc.activation.env]
-MOZ_HEADLESS = "1"
-PANEL_IPYWIDGET = "1"
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY = "YES"
-SPHINX_APIDOC_OPTIONS = "members,show-inheritance"
 
-[feature.doc.dependencies]
-nbsite = ">=0.9.0a1"
-numpydoc = "*"
-matplotlib = "*"  # not optional in nbsite
-hvplot = "*"
-bokeh_sampledata = "*"
-plotly = "*"
+[feature.docs.dependencies]
+zensical = "*"
+mkdocstrings = "*"
+mkdocstrings-python = "*"
 
-[feature.doc.tasks]
-_docs-generate = 'nbsite build --what=html --output=builtdocs --org holoviz --project-name panel-mde --disable-parallel'
-_docs-generate-parallel = 'nbsite build --what=html --output=builtdocs --org holoviz --project-name panel-mde'
-docs-server = 'python -m http.server 5500 --directory ./builtdocs'
-
-[feature.doc.tasks.docs-build]
-depends-on = [
-    '_docs-generate',
-]
-
-[feature.doc.tasks.docs-build-parallel]
-depends-on = [
-    '_docs-generate-parallel',
-]
+[feature.docs.tasks]
+docs-build = { cmd = 'zensical build --clean', depends-on = ['postinstall'] }
+docs-serve = { cmd = 'zensical serve', depends-on = ['postinstall'] }
+docs-clean = 'rm -rf builtdocs .zensical'
 
 # =============================================
 # ================== BUILD ====================

@@ -1,0 +1,117 @@
+[project]
+site_name = "panel-mde"
+site_description = "Markdown editor widget for Panel."
+site_author = "Philipp Rudiger"
+site_url = "https://panel-extensions.github.io/panel-mde/"
+site_dir = "builtdocs"
+repo_url = "https://github.com/panel-extensions/panel-mde"
+repo_name = "panel-extensions/panel-mde"
+edit_uri = "edit/main/docs/"
+nav = [
+  {"Home" = "index.md"},
+  {"MarkdownEditor" = "reference/panel-mde.md"}
+]
+
+# Theme configuration
+[project.theme]
+variant = "modern"
+logo = "assets/logo.svg"
+features = [
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "search.suggest",
+  "toc.follow"
+]
+
+# Color palette
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "white"
+accent = "blue"
+
+[project.theme.palette.toggle]
+icon = "material/brightness-7"
+name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "black"
+accent = "blue"
+
+[project.theme.palette.toggle]
+icon = "material/brightness-4"
+name = "Switch to light mode"
+
+# Markdown extensions
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+
+[project.markdown_extensions.pymdownx.superfences]
+
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+
+[project.markdown_extensions.pymdownx.inlinehilite]
+
+# base_path resolves the `--8<-- "README.md"` snippet in docs/index.md
+# relative to the repository root.
+[project.markdown_extensions.pymdownx.snippets]
+base_path = ["."]
+
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+
+[project.markdown_extensions.admonition]
+
+[project.markdown_extensions.attr_list]
+
+[project.markdown_extensions.md_in_html]
+
+[project.markdown_extensions.def_list]
+
+# Plugins
+[project.plugins]
+search = {}
+typeset = {}
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "numpy"
+show_if_no_docstring = true
+filters = ["!^_"]
+
+# Extra configuration
+[project.extra]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/panel-extensions/panel-mde"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/discourse"
+link = "https://discourse.holoviz.org/c/panel/"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/discord"
+link = "https://discord.com/invite/rb6gPXbdAr"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/panel-mde/"

@@ -215,6 +215,15 @@ pixi run -e test-ui test-ui          # Playwright UI tests
 panel serve examples/apps/notes.py examples/apps/image_upload.py --dev
 ```
 
+### Documentation
+
+The documentation is built with [Zensical](https://zensical.org):
+
+```bash
+pixi run -e docs docs-serve    # live-reloading preview
+pixi run -e docs docs-build    # build into builtdocs/
+```
+
 ### Pre-commit
 
 Before committing the first time please install `pre-commit`:

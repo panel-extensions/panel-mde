@@ -20,9 +20,13 @@ def compile_bundle():
     module_bundles = find_module_bundles('panel_mde')
     errors = 0
     for bundle, components in module_bundles.items():
+        # Not verbose: that runs esbuild at --log-level=debug, which reports the
+        # Node-only `require` in typo-js (EasyMDE's spell-check dictionary
+        # loader) as an indirect-require note. It is inert in a browser bundle.
         ret = compile_components(
             components,
             outfile=bundle,
+            verbose=False,
         )
         if ret is None:
             errors += 1

@@ -383,6 +383,10 @@ src/panel_mde/_version.py
 src/panel_mde/dist/*.js
 src/panel_mde/dist/*.css
 
+# Built documentation
+builtdocs/
+.zensical/
+
 # End of https://www.toptal.com/developers/gitignore/api/linux,macos,direnv,python,windows,pycharm+all,visualstudiocode,vim
 
 .pixi
