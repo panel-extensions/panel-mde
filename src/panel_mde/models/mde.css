@@ -1,0 +1,188 @@
+/*
+ * Panel-specific layout and theming on top of the vendored EasyMDE
+ * stylesheet. Loaded into the component's shadow root via `_stylesheets`.
+ *
+ * Colours resolve against Panel's design tokens where they exist and fall
+ * back to EasyMDE's light defaults, so the editor follows `pn.config.theme`
+ * without needing a separate dark stylesheet.
+ */
+
+:host {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pnmde-root {
+  --pnmde-min-height: 240px;
+  --pnmde-border: var(--panel-surface-border-color, #d0d7de);
+  --pnmde-surface: var(--panel-surface-color, #fff);
+  --pnmde-on-surface: var(--panel-on-surface-color, #24292f);
+  --pnmde-muted: color-mix(in srgb, var(--pnmde-on-surface) 55%, transparent);
+  --pnmde-gap: 0.5rem;
+
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: row;
+  gap: var(--pnmde-gap);
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  color: var(--pnmde-on-surface);
+}
+
+.pnmde-root.pnmde-preview-bottom {
+  flex-direction: column;
+}
+
+.pnmde-editor {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Hidden rather than unmounted, so toggling the preview never rebuilds it. */
+.pnmde-preview {
+  display: none;
+  overflow: auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--pnmde-border);
+  border-radius: 4px;
+  background: var(--pnmde-surface);
+}
+
+.pnmde-root.pnmde-has-preview .pnmde-preview {
+  display: block;
+  flex: 1 1 50%;
+}
+
+/* --- EasyMDE container ------------------------------------------------- */
+
+.pnmde-editor .EasyMDEContainer {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pnmde-editor .EasyMDEContainer .CodeMirror {
+  flex: 1 1 auto;
+  min-height: var(--pnmde-min-height);
+  height: auto;
+  padding: 0.5rem 0.75rem;
+  border-color: var(--pnmde-border);
+  background: var(--pnmde-surface);
+  color: var(--pnmde-on-surface);
+  font-family: var(--panel-code-font, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+/* CodeMirror sizes its own scroller; let flex drive it instead. */
+.pnmde-editor .EasyMDEContainer .CodeMirror-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.pnmde-editor .EasyMDEContainer .CodeMirror-cursor {
+  border-left-color: var(--pnmde-on-surface);
+}
+
+.pnmde-editor .EasyMDEContainer .CodeMirror-placeholder {
+  color: var(--pnmde-muted);
+}
+
+.pnmde-editor .EasyMDEContainer .CodeMirror-selected,
+.pnmde-editor .EasyMDEContainer .CodeMirror-focused .CodeMirror-selected {
+  background: color-mix(in srgb, var(--panel-primary-color, #0969da) 22%, transparent);
+}
+
+/* --- Toolbar ---------------------------------------------------------- */
+
+.pnmde-editor .editor-toolbar {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  border-color: var(--pnmde-border);
+  opacity: 1;
+}
+
+.pnmde-editor .editor-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--pnmde-on-surface);
+}
+
+/* EasyMDE draws the heading level digits and the bigger/smaller arrows as
+   ::after content; ours are part of the inline SVG. */
+.pnmde-editor .editor-toolbar button::after {
+  content: none;
+}
+
+.pnmde-editor .editor-toolbar button:hover,
+.pnmde-editor .editor-toolbar button.active {
+  background: color-mix(in srgb, var(--pnmde-on-surface) 10%, transparent);
+  border-color: var(--pnmde-border);
+}
+
+.pnmde-editor .editor-toolbar button.active {
+  color: var(--panel-primary-color, #0969da);
+}
+
+.pnmde-editor .editor-toolbar button svg {
+  display: block;
+  pointer-events: none;
+}
+
+.pnmde-editor .editor-toolbar i.separator {
+  border-left-color: var(--pnmde-border);
+  border-right-color: transparent;
+  color: transparent;
+}
+
+/* --- Status bar ------------------------------------------------------- */
+
+.pnmde-editor .editor-statusbar {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  color: var(--pnmde-muted);
+  font-size: 0.75rem;
+}
+
+/* --- Disabled --------------------------------------------------------- */
+
+.pnmde-root.pnmde-disabled .editor-toolbar {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.pnmde-root.pnmde-disabled .CodeMirror {
+  background: color-mix(in srgb, var(--pnmde-on-surface) 4%, var(--pnmde-surface));
+}
+
+/* --- Preview pane ----------------------------------------------------- */
+
+.pnmde-preview-pane :first-child {
+  margin-top: 0;
+}
+
+.pnmde-preview-pane table {
+  border-collapse: collapse;
+}
+
+.pnmde-preview-pane th,
+.pnmde-preview-pane td {
+  border: 1px solid var(--pnmde-border);
+  padding: 0.25rem 0.5rem;
+}
