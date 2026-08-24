@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import mimetypes
 import re
-
 from dataclasses import dataclass
 from html import escape
 

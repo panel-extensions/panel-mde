@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import typing as t
-
 from functools import partial
 from inspect import iscoroutinefunction
 
@@ -15,7 +14,10 @@ from panel.widgets.base import WidgetBase
 
 from .base import MODELS_PATH, MDEditorComponent
 from .upload import (
-    UploadedFile, accepts, format_upload, guess_mime_type,
+    UploadedFile,
+    accepts,
+    format_upload,
+    guess_mime_type,
 )
 
 #: Every toolbar action ``MarkdownEditor`` understands, in the order EasyMDE
