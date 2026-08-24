@@ -493,13 +493,14 @@ class TestPreview:
         handle = splitter.bounding_box()
         start = page.locator('.pnmde-editor').bounding_box()['width']
 
-        page.mouse.move(handle['x'] + handle['width'] / 2, handle['y'] + handle['height'] / 2)
+        centre = (handle['x'] + handle['width'] / 2, handle['y'] + handle['height'] / 2)
+        page.mouse.move(*centre)
         page.mouse.down()
-        page.mouse.move(handle['x'] - 200, handle['y'] + handle['height'] / 2, steps=5)
+        page.mouse.move(centre[0] - 200, centre[1], steps=5)
         page.mouse.up()
 
         width = page.locator('.pnmde-editor').bounding_box()['width']
-        assert abs(width - (start - 200)) < 5, (start, width)
+        assert abs(width - (start - 200)) < 2, (start, width)
         assert page.locator('.pnmde-preview').bounding_box()['width'] > start
 
         # Double-clicking the handle puts it back in the middle.

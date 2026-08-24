@@ -15,7 +15,7 @@ A rich text editor for [Panel](https://panel.holoviz.org) whose value **is** mar
 - **A toolbar with tables** - bold, italic, headings, lists, links, images, tables, undo/redo and more
 - **Caret-safe programmatic writes** - appending to `value` from Python keeps the caret, selection, scroll position and undo history intact
 - **Paste and drop uploads** - hand pasted or dropped files to a Python handler, return a URL and it lands in the document as an image, a media tag or a link
-- **Live preview** - optional, rendered by Panel's own markdown-it pane so it matches every other markdown surface in your app
+- **Live preview** - optional, rendered by Panel's own markdown-it pane so it matches every other markdown surface in your app, with a draggable divider
 - **Self-contained** - the script, stylesheet and icons ship with the package, so nothing is fetched from a third-party CDN at runtime
 - **Works in shadow roots and dialogs** - inline SVG icons need no `@font-face`, and the editor re-measures itself when it is attached after render
 
@@ -162,7 +162,7 @@ from panel_mde import MarkdownEditor
 MarkdownEditor(value="# Title", preview=True, preview_location="bottom", height=500)
 ```
 
-The preview renders through `pn.pane.Markdown`, so it uses markdown-it with your app's own extensions. EasyMDE's bundled marked.js preview is never used, because it renders subtly differently from every other markdown surface in a Panel app. Add `"preview"` to the toolbar to let the user toggle it, or restyle it by assigning your own pane to `preview_pane`.
+The editor and the preview split the space evenly, and the divider between them can be dragged to give either side more room (double-click resets it). The preview renders through `pn.pane.Markdown`, so it uses markdown-it with your app's own extensions. EasyMDE's bundled marked.js preview is never used, because it renders subtly differently from every other markdown surface in a Panel app. Add `"preview"` to the toolbar to let the user toggle it, or restyle it by assigning your own pane to `preview_pane`.
 
 ### Inside a dialog
 

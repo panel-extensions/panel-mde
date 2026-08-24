@@ -98,6 +98,14 @@ MarkdownEditor(value="# Title", preview=True, height=400)
 
 Add `"preview"` to the toolbar to let the user toggle it.
 
+The editor and the preview each take half of the space, however long the lines
+in the document are, and the divider between them is draggable: pull it either
+way to give one side more room, or double-click it to go back to an even split.
+Because the split is a fraction of the component, it holds when the component is
+resized. Dragging it in `preview_location="bottom"` needs the editor to have a
+`height` or a height-stretching `sizing_mode`, since there is nothing to
+redistribute when the component sizes itself from its content.
+
 ## Pasting and dropping files
 
 Set an `upload_handler` and a file pasted or dropped into the editor is sent to
