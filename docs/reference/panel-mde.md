@@ -98,6 +98,72 @@ MarkdownEditor(value="# Title", preview=True, height=400)
 
 Add `"preview"` to the toolbar to let the user toggle it.
 
+The editor and the preview each take half of the space, however long the lines
+in the document are, and the divider between them is draggable: pull it either
+way to give one side more room, or double-click it to go back to an even split.
+Because the split is a fraction of the component, it holds when the component is
+resized. Dragging it in `preview_location="bottom"` needs the editor to have a
+`height` or a height-stretching `sizing_mode`, since there is nothing to
+redistribute when the component sizes itself from its content.
+
+## Pasting and dropping files
+
+Set an `upload_handler` and a file pasted or dropped into the editor is sent to
+the server, stored by your own code and referenced in the document:
+
+```python
+from pathlib import Path
+
+import panel as pn
+
+from panel_mde import MarkdownEditor
+
+MEDIA = Path("media")
+
+
+def store(file):
+    (MEDIA / file.name).write_bytes(file.data)
+    return f"/media/{file.name}"
+
+
+editor = MarkdownEditor(upload_handler=store, accepted_filetypes=["image/*", "video/*"])
+pn.serve(editor, static_dirs={"media": str(MEDIA)})
+```
+
+The handler is called with an [`UploadedFile`](#panel_mde.UploadedFile) holding
+the name, MIME type, size and bytes of the file, and it may be a coroutine
+function if storing is slow. Whatever it returns decides what is inserted:
+
+| Returned | Inserted |
+| -------- | -------- |
+| A URL for an `image/*` file | `![name](url)` |
+| A URL for a `video/*` file | `<video src="url" controls></video>` |
+| A URL for an `audio/*` file | `<audio src="url" controls></audio>` |
+| A URL for anything else | `[name](url)` |
+| A markdown or HTML snippet | The snippet, untouched |
+| `None` | Nothing; the file is rejected |
+
+A result counts as a snippet, rather than a URL, when it contains whitespace or
+starts with `!`, `[` or `<`, so returning something like
+`'<img src="/media/photo.png" width="300">'` gives you full control of the
+markup. Media is inserted as HTML because markdown has no syntax for video or
+audio; Panel's Markdown pane renders it, so the preview shows the player too.
+
+`value` does not change until the handler returns. In the meantime the editor
+marks the spot the file will land in, and that marker follows the text the user
+keeps typing, so the insertion happens where the file was dropped rather than
+wherever the caret has since moved.
+
+`accepted_filetypes` restricts what may be uploaded, as MIME types
+(`'image/png'`), MIME type wildcards (`'image/*'`) or extensions (`'.png'`);
+anything else is rejected in the browser without being sent. `max_upload_size`
+caps a single file at 10MB by default. Each file crosses the websocket in one
+message, so raising the cap above the server's `--websocket-max-message-size`
+(20MB by default) means raising both.
+
+Rejections and exceptions are reported in place, on the marker, and an
+exception in the handler is also logged by the server.
+
 ## Assets
 
 Everything the editor needs, including the toolbar icons, ships inside the
@@ -126,3 +192,5 @@ inside a dialog or an initially collapsed card.
     options:
         show_root_heading: false
         members: false
+
+::: panel_mde.UploadedFile

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 pytest.importorskip('playwright')
@@ -32,6 +34,33 @@ def click_editor(page):
     editor = page.locator(EDITOR)
     editor.click()
     return editor
+
+
+# CodeMirror forwards a DOM paste on its hidden textarea (and a drop on its
+# scroller) to the handlers EasyMDE registers, which is what turns a file in
+# the clipboard or in a drag into an upload.
+DISPATCH_FILE = """
+(el, {name, mime_type, size, event}) => {
+  const transfer = new DataTransfer()
+  transfer.items.add(new File([new Uint8Array(size)], name, {type: mime_type}))
+  const init = {bubbles: true, cancelable: true}
+  el.dispatchEvent(event === "paste"
+    ? new ClipboardEvent("paste", {...init, clipboardData: transfer})
+    : new DragEvent("drop", {...init, dataTransfer: transfer}))
+}
+"""
+
+
+def paste_file(page, name="photo.png", mime_type="image/png", size=8):
+    page.locator('.CodeMirror textarea').evaluate(
+        DISPATCH_FILE, {"name": name, "mime_type": mime_type, "size": size, "event": "paste"}
+    )
+
+
+def drop_file(page, name="photo.png", mime_type="image/png", size=8):
+    page.locator('.CodeMirror-scroll').evaluate(
+        DISPATCH_FILE, {"name": name, "mime_type": mime_type, "size": size, "event": "drop"}
+    )
 
 
 def scroll_top(page):
@@ -443,6 +472,47 @@ class TestPreview:
         preview_box = page.locator('.pnmde-preview').bounding_box()
         assert preview_box['y'] > editor_box['y']
 
+    def test_split_stays_even_with_long_lines(self, page):
+        editor = MarkdownEditor(
+            value="word " * 400 + "https://example.com/" + "a" * 300,
+            preview=True, width=800, height=300,
+        )
+        serve_component(page, editor)
+
+        expect(page.locator('.pnmde-preview')).to_be_visible()
+        editor_box = page.locator('.pnmde-editor').bounding_box()
+        preview_box = page.locator('.pnmde-preview').bounding_box()
+        assert abs(editor_box['width'] - preview_box['width']) < 2
+
+    def test_splitter_drags(self, page):
+        editor = MarkdownEditor(value="# Title", preview=True, width=800, height=300)
+        serve_component(page, editor)
+
+        splitter = page.locator('.pnmde-splitter')
+        expect(splitter).to_be_visible()
+        handle = splitter.bounding_box()
+        start = page.locator('.pnmde-editor').bounding_box()['width']
+
+        centre = (handle['x'] + handle['width'] / 2, handle['y'] + handle['height'] / 2)
+        page.mouse.move(*centre)
+        page.mouse.down()
+        page.mouse.move(centre[0] - 200, centre[1], steps=5)
+        page.mouse.up()
+
+        width = page.locator('.pnmde-editor').bounding_box()['width']
+        assert abs(width - (start - 200)) < 2, (start, width)
+        assert page.locator('.pnmde-preview').bounding_box()['width'] > start
+
+        # Double-clicking the handle puts it back in the middle.
+        splitter.dblclick()
+        wait_until(lambda: abs(page.locator('.pnmde-editor').bounding_box()['width'] - start) < 2, page)
+
+    def test_splitter_hidden_without_a_preview(self, page):
+        editor = MarkdownEditor(value="# Title", height=300)
+        serve_component(page, editor)
+
+        expect(page.locator('.pnmde-splitter')).to_be_hidden()
+
 
 class TestOptions:
 
@@ -518,6 +588,142 @@ class TestOptions:
         page.locator('.editor-toolbar button.unordered-list').click()
 
         wait_until(lambda: editor.value == "* item", page)
+
+
+class TestUpload:
+    """Pasting and dropping files, handled by ``upload_handler``."""
+
+    def test_paste_inserts_an_image(self, page):
+        received = []
+        editor = MarkdownEditor(value="Before: ", upload_handler=lambda file: received.append(file) or f"/media/{file.name}")
+        serve_component(page, editor)
+
+        click_editor(page)
+        page.keyboard.press("End")
+        paste_file(page)
+
+        wait_until(lambda: editor.value == "Before: ![photo.png](/media/photo.png)", page)
+        assert len(received) == 1
+        assert (received[0].name, received[0].mime_type, received[0].data) == ("photo.png", "image/png", b"\x00" * 8)
+
+    def test_drop_inserts_a_video_tag(self, page):
+        editor = MarkdownEditor(upload_handler=lambda file: f"/media/{file.name}")
+        serve_component(page, editor)
+
+        drop_file(page, name="clip.mp4", mime_type="video/mp4")
+
+        wait_until(lambda: editor.value == '<video src="/media/clip.mp4" controls></video>', page)
+
+    def test_snippet_inserted_verbatim(self, page):
+        editor = MarkdownEditor(upload_handler=lambda file: f'<img src="/media/{file.name}" width="200">')
+        serve_component(page, editor)
+
+        paste_file(page)
+
+        wait_until(lambda: editor.value == '<img src="/media/photo.png" width="200">', page)
+
+    def test_nothing_happens_without_a_handler(self, page):
+        editor = MarkdownEditor(value="untouched")
+        serve_component(page, editor)
+
+        paste_file(page)
+        page.wait_for_timeout(400)
+
+        assert editor.value == "untouched"
+        expect(page.locator('.pnmde-upload')).to_have_count(0)
+
+    def test_handler_attached_after_render(self, page):
+        editor = MarkdownEditor()
+        serve_component(page, editor)
+
+        editor.upload_handler = lambda file: f"/media/{file.name}"
+        # EasyMDE only listens for pastes when it is built with uploads on, so
+        # the editor is rebuilt; wait for the new instance before pasting.
+        page.wait_for_timeout(200)
+        paste_file(page)
+
+        wait_until(lambda: editor.value == "![photo.png](/media/photo.png)", page)
+
+    def test_rejected_file_type_never_reaches_the_handler(self, page):
+        called = []
+        editor = MarkdownEditor(upload_handler=called.append, accepted_filetypes=["image/*"])
+        serve_component(page, editor)
+
+        paste_file(page, name="clip.mp4", mime_type="video/mp4")
+
+        expect(page.locator('.pnmde-upload-error')).to_contain_text("clip.mp4 is not an accepted file type")
+        assert called == []
+        assert editor.value == ""
+
+    def test_oversized_file_never_reaches_the_handler(self, page):
+        called = []
+        editor = MarkdownEditor(upload_handler=called.append, max_upload_size=4)
+        serve_component(page, editor)
+
+        paste_file(page, size=8)
+
+        expect(page.locator('.pnmde-upload-error')).to_contain_text("photo.png is larger than")
+        assert called == []
+        assert editor.value == ""
+
+    def test_rejection_by_the_handler_is_reported(self, page):
+        editor = MarkdownEditor(upload_handler=lambda file: None)
+        serve_component(page, editor)
+
+        paste_file(page)
+
+        expect(page.locator('.pnmde-upload-error')).to_contain_text("photo.png was rejected")
+        assert editor.value == ""
+
+    def test_marker_holds_the_spot_while_the_handler_runs(self, page):
+        async def store(file):
+            await asyncio.sleep(0.5)
+            return f"/media/{file.name}"
+
+        editor = MarkdownEditor(value="A", upload_handler=store)
+        serve_component(page, editor)
+
+        click_editor(page)
+        page.keyboard.press("End")
+        paste_file(page)
+
+        # The document is untouched until the URL arrives; the marker is a
+        # CodeMirror widget, so it shows up in the DOM but not in `value`.
+        expect(page.locator('.pnmde-upload')).to_contain_text("Uploading photo.png")
+        assert editor.value == "A"
+
+        page.keyboard.type("BC")
+        wait_until(lambda: editor.value == "A![photo.png](/media/photo.png)BC", page)
+        expect(page.locator('.pnmde-upload')).to_have_count(0)
+
+    def test_status_bar_reports_uploads(self, page):
+        async def store(file):
+            await asyncio.sleep(0.5)
+            return f"/media/{file.name}"
+
+        editor = MarkdownEditor(status_bar=True, upload_handler=store)
+        serve_component(page, editor)
+
+        status = page.locator('.editor-statusbar .upload-image')
+        expect(status).to_contain_text("Attach files")
+
+        paste_file(page)
+        expect(status).to_contain_text("Uploading photo.png")
+
+        wait_until(lambda: editor.value == "![photo.png](/media/photo.png)", page)
+        # EasyMDE only clears its own "Uploading..." text from the code path
+        # that inserts the image for us, which is never taken.
+        expect(status).to_contain_text("Attach files")
+
+    def test_status_bar_reports_a_rejected_file(self, page):
+        editor = MarkdownEditor(status_bar=True, upload_handler=lambda file: None, max_upload_size=4)
+        serve_component(page, editor)
+
+        paste_file(page, size=8)
+
+        expect(page.locator('.editor-statusbar .upload-image')).to_contain_text(
+            "photo.png is larger than"
+        )
 
 
 def test_usable_when_attached_after_render(page):
