@@ -383,6 +383,9 @@ src/panel_mde/_version.py
 src/panel_mde/dist/*.js
 src/panel_mde/dist/*.css
 
+# Files uploaded by examples/apps/uploads.py
+examples/apps/media/
+
 # Built documentation
 builtdocs/
 .zensical/

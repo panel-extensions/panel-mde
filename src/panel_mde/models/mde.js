@@ -119,6 +119,49 @@ function build_toolbar(spec, model) {
   return items.length ? items : false
 }
 
+// EasyMDE calls its upload feature "image", but a paste or a drop can carry
+// any file, so the wording is generalised. Only shown when the status bar is
+// enabled; the marker in the document is what reports progress otherwise.
+const UPLOAD_TEXTS = {
+  sbInit: "Attach files by dragging and dropping or pasting from the clipboard.",
+  sbOnDragEnter: "Drop the file to upload it.",
+  sbOnDrop: "Uploading #images_names#...",
+  sbOnUploaded: "Uploaded #image_name#",
+}
+
+// Match a File against `accepted_filetypes`: MIME types, MIME type wildcards
+// or extensions. Mirrored in panel_mde.upload.accepts, which re-checks the
+// file on arrival because a websocket message cannot be trusted.
+function accepts(patterns, file) {
+  if (!Array.isArray(patterns) || patterns.length === 0) {
+    return true
+  }
+  const name = (file.name || "").toLowerCase()
+  const mime = (file.type || "").toLowerCase()
+  return patterns.some((raw) => {
+    const pattern = String(raw).trim().toLowerCase()
+    if (pattern === "") {
+      return false
+    } else if (pattern.startsWith(".")) {
+      return name.endsWith(pattern)
+    } else if (pattern.endsWith("/*")) {
+      return mime.startsWith(pattern.slice(0, -1))
+    }
+    return mime === pattern
+  })
+}
+
+function human_size(bytes) {
+  const units = ["B", "KB", "MB", "GB"]
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  return `${unit === 0 || value >= 10 ? Math.round(value) : value.toFixed(1)}${units[unit]}`
+}
+
 // Replace the document with `next` using the smallest edit that produces it,
 // so CodeMirror moves the caret and selections the way it would for a normal
 // edit and the undo history survives. A naive setValue() resets the document,
@@ -183,7 +226,15 @@ export function render({model, el, view}) {
   const preview_wrap = document.createElement("div")
   preview_wrap.className = "pnmde-preview"
 
-  root.append(editor_wrap, preview_wrap)
+  const splitter = document.createElement("div")
+  splitter.className = "pnmde-splitter"
+  splitter.setAttribute("role", "separator")
+  splitter.setAttribute("tabindex", "0")
+  splitter.setAttribute("aria-label", "Resize the preview")
+  splitter.setAttribute("aria-valuemin", "10")
+  splitter.setAttribute("aria-valuemax", "90")
+
+  root.append(editor_wrap, splitter, preview_wrap)
 
   // The editor needs an intrinsic height unless the layout gives it one,
   // otherwise CodeMirror collapses; when Panel does size the component, let
@@ -198,6 +249,9 @@ export function render({model, el, view}) {
   // CodeMirror change event does not echo the value straight back.
   let applying = false
   let autofocused = false
+  // Uploads waiting on a URL from the upload handler, by message id.
+  const uploads = new Map()
+  let upload_count = 0
 
   function commit(final) {
     if (applying || editor == null) {
@@ -210,6 +264,124 @@ export function render({model, el, view}) {
     if ((final || model.on_keyup) && model.value !== text) {
       model.value = text
     }
+  }
+
+  // EasyMDE's upload hook, called once per pasted or dropped file. Its
+  // onSuccess is never used: what gets inserted depends on the type of the
+  // file and is decided by the server, so the reply is handled below. onError
+  // only drives EasyMDE's status bar, hence the marker in the document.
+  async function upload(file, on_success, on_error) {
+    const cm = editor?.codemirror
+    if (cm == null) {
+      return
+    }
+    const id = `u${++upload_count}`
+    // A marker rather than placeholder text: `value` must not change until
+    // the URL arrives, and a bookmark still tracks the insertion point
+    // through everything the user types while the upload is in flight.
+    const chip = document.createElement("span")
+    chip.className = "pnmde-upload"
+    chip.textContent = `Uploading ${file.name}...`
+    // Text typed at a bookmark ends up to its right by default, which is what
+    // keeps the file at the spot it was pasted rather than after whatever the
+    // user typed while it uploaded.
+    const bookmark = cm.setBookmark(cm.getCursor("to"), {widget: chip})
+    uploads.set(id, {bookmark, chip, on_error, name: file.name, failed: false, message: "", timer: null})
+    refresh_upload_status()
+
+    const limit = model.max_upload_size
+    if (!accepts(model.accepted_filetypes, file)) {
+      fail_upload(id, `${file.name} is not an accepted file type.`)
+      return
+    } else if (limit != null && file.size > limit) {
+      fail_upload(id, `${file.name} is larger than the ${human_size(limit)} upload limit.`)
+      return
+    }
+    try {
+      model.send_msg({kind: "upload", id, name: file.name, mime_type: file.type, data: await file.arrayBuffer()})
+    } catch (e) {
+      fail_upload(id, `${file.name} could not be read.`)
+    }
+  }
+
+  // Drop a pending upload's marker and report where it ended up.
+  function clear_upload(id) {
+    const entry = uploads.get(id)
+    uploads.delete(id)
+    if (entry == null) {
+      return null
+    }
+    if (entry.timer != null) {
+      clearTimeout(entry.timer)
+    }
+    const pos = entry.bookmark.find()
+    entry.bookmark.clear()
+    refresh_upload_status()
+    return pos
+  }
+
+  // EasyMDE writes "Uploading ..." into the status bar from its own paste and
+  // drop handlers, but only clears it again from the onSuccess path, which is
+  // never taken here, so the item is driven from this side instead. The write
+  // is deferred: EasyMDE sets its own text after imageUploadFunction returns,
+  // which is after a file rejected in the browser has already finished.
+  function refresh_upload_status() {
+    setTimeout(() => {
+      if (editor == null) {
+        return
+      }
+      const entries = [...uploads.values()]
+      const pending = entries.filter((entry) => !entry.failed)
+      const failed = entries.filter((entry) => entry.failed)
+      let text = UPLOAD_TEXTS.sbInit
+      if (pending.length) {
+        text = UPLOAD_TEXTS.sbOnDrop.replace("#images_names#", pending.map((entry) => entry.name).join(", "))
+      } else if (failed.length) {
+        text = failed[failed.length - 1].message
+      }
+      editor.updateStatusBar("upload-image", text)
+    }, 0)
+  }
+
+  function insert_upload(id, text) {
+    const pos = clear_upload(id)
+    const cm = editor?.codemirror
+    if (cm == null || !text) {
+      return
+    }
+    // A rebuilt editor has no marker left, so fall back to the caret.
+    const at = pos || cm.getCursor()
+    const focused = cm.hasFocus()
+    cm.replaceRange(text, at, at, "+pnmde-upload")
+    if (focused) {
+      cm.setCursor(cm.posFromIndex(cm.indexFromPos(at) + text.length))
+    }
+  }
+
+  function fail_upload(id, message) {
+    const entry = uploads.get(id)
+    if (entry == null) {
+      return
+    }
+    // Keep the marker where the file was dropped, flipped to an error, so the
+    // failure is reported at the place it happened rather than nowhere.
+    entry.chip.classList.add("pnmde-upload-error")
+    entry.chip.textContent = message
+    entry.failed = true
+    entry.message = message
+    entry.timer = setTimeout(() => clear_upload(id), 8000)
+    refresh_upload_status()
+    entry.on_error(message)
+  }
+
+  function status_items() {
+    if (!model.status_bar) {
+      return false
+    }
+    // EasyMDE logs to the console whenever it updates a status item that does
+    // not exist, and it updates 'upload-image' on every dragover event.
+    const items = ["lines", "words", "cursor"]
+    return model._upload_enabled ? ["upload-image", ...items] : items
   }
 
   function create() {
@@ -231,7 +403,14 @@ export function render({model, el, view}) {
       autoRefresh: true,
       toolbar: build_toolbar(model.toolbar, model),
       toolbarTips: true,
-      status: model.status_bar ? ["lines", "words", "cursor"] : false,
+      status: status_items(),
+      // Registers the paste and drop handlers; they only exist when EasyMDE
+      // is constructed with uploads enabled.
+      uploadImage: model._upload_enabled,
+      imageUploadFunction: upload,
+      imageTexts: UPLOAD_TEXTS,
+      // EasyMDE reports upload errors with alert() by default.
+      errorCallback: (message) => console.warn(`[panel-mde] ${message}`),
       placeholder: model.placeholder,
       lineNumbers: model.line_numbers,
       lineWrapping: model.line_wrapping,
@@ -258,6 +437,9 @@ export function render({model, el, view}) {
   function destroy() {
     if (editor == null) {
       return
+    }
+    for (const id of [...uploads.keys()]) {
+      clear_upload(id)
     }
     editor.toTextArea()
     editor = null
@@ -292,9 +474,56 @@ export function render({model, el, view}) {
     root.classList.toggle("pnmde-disabled", model.disabled)
   }
 
+  // The editor takes `--pnmde-split` of the root and the preview takes the
+  // rest. A fraction rather than pixels, so the ratio survives a resize.
+  const MIN_SPLIT = 0.1
+  let split = 0.5
+
+  function set_split(fraction) {
+    split = Math.min(1 - MIN_SPLIT, Math.max(MIN_SPLIT, fraction))
+    root.style.setProperty("--pnmde-split", `${(split * 100).toFixed(3)}%`)
+    splitter.setAttribute("aria-valuenow", `${Math.round(split * 100)}`)
+    refresh()
+  }
+
+  function drag_split(event) {
+    const bounds = root.getBoundingClientRect()
+    const vertical = model.preview_location === "bottom"
+    const size = vertical ? bounds.height : bounds.width
+    if (size > 0) {
+      set_split(((vertical ? event.clientY - bounds.top : event.clientX - bounds.left)) / size)
+    }
+  }
+
+  splitter.addEventListener("pointerdown", (event) => {
+    // Capture the pointer: without it CodeMirror and the preview swallow the
+    // moves as soon as the cursor leaves the handle, which is immediately.
+    splitter.setPointerCapture(event.pointerId)
+    splitter.classList.add("pnmde-splitter-active")
+    event.preventDefault()
+  })
+  splitter.addEventListener("pointermove", (event) => {
+    if (splitter.hasPointerCapture(event.pointerId)) {
+      drag_split(event)
+    }
+  })
+  splitter.addEventListener("pointerup", (event) => {
+    splitter.releasePointerCapture(event.pointerId)
+    splitter.classList.remove("pnmde-splitter-active")
+  })
+  splitter.addEventListener("dblclick", () => set_split(0.5))
+  splitter.addEventListener("keydown", (event) => {
+    const step = {ArrowLeft: -0.02, ArrowUp: -0.02, ArrowRight: 0.02, ArrowDown: 0.02}[event.key]
+    if (step != null) {
+      event.preventDefault()
+      set_split(split + step)
+    }
+  })
+
   function sync_preview() {
     root.classList.toggle("pnmde-has-preview", model.preview)
     root.classList.toggle("pnmde-preview-bottom", model.preview_location === "bottom")
+    splitter.setAttribute("aria-orientation", model.preview_location === "bottom" ? "horizontal" : "vertical")
     // Resolve the child even while the preview is hidden: get_child is what
     // registers `preview_pane` as an accessed child, and Panel only renders
     // child views it knows the ESM asked for.
@@ -307,6 +536,7 @@ export function render({model, el, view}) {
     refresh()
   }
 
+  set_split(split)
   create()
   sync_preview()
 
@@ -338,8 +568,18 @@ export function render({model, el, view}) {
   model.on("indent_with_tabs", () => editor?.codemirror.setOption("indentWithTabs", model.indent_with_tabs))
   model.on("unordered_list_style", () => { if (editor != null) { editor.options.unorderedListStyle = model.unordered_list_style } })
 
+  model.on("msg:custom", (msg) => {
+    if (msg == null) {
+      return
+    } else if (msg.kind === "uploaded") {
+      insert_upload(msg.id, msg.text)
+    } else if (msg.kind === "upload_failed") {
+      fail_upload(msg.id, msg.message)
+    }
+  })
+
   // Options EasyMDE only reads while constructing its DOM.
-  model.on(["toolbar", "status_bar", "line_numbers", "placeholder"], rebuild)
+  model.on(["toolbar", "status_bar", "line_numbers", "placeholder", "_upload_enabled"], rebuild)
 
   model.on("after_render", refresh)
   model.on("after_layout", refresh)

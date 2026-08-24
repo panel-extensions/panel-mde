@@ -14,6 +14,7 @@ A rich text editor for [Panel](https://panel.holoviz.org) whose value **is** mar
 - **Markdown in, markdown out** - `value` is the markdown source, synced on every keystroke
 - **A toolbar with tables** - bold, italic, headings, lists, links, images, tables, undo/redo and more
 - **Caret-safe programmatic writes** - appending to `value` from Python keeps the caret, selection, scroll position and undo history intact
+- **Paste and drop uploads** - hand pasted or dropped files to a Python handler, return a URL and it lands in the document as an image, a media tag or a link
 - **Live preview** - optional, rendered by Panel's own markdown-it pane so it matches every other markdown surface in your app
 - **Self-contained** - the script, stylesheet and icons ship with the package, so nothing is fetched from a third-party CDN at runtime
 - **Works in shadow roots and dialogs** - inline SVG icons need no `@font-face`, and the editor re-measures itself when it is attached after render
@@ -99,6 +100,42 @@ pn.Row(editor, upload).servable()
 
 The caret stays where it was, a selection survives, the view does not scroll and undo still walks back through what the user typed.
 
+### Pasting and dropping files
+
+An `upload_handler` receives every file pasted or dropped into the editor, stores it wherever you like and returns the URL it is served from:
+
+```python
+from pathlib import Path
+
+import panel as pn
+
+from panel_mde import MarkdownEditor
+
+pn.extension()
+
+MEDIA = Path("media")
+MEDIA.mkdir(exist_ok=True)
+
+
+def store(file):
+    # file.name, file.mime_type, file.size and file.data (bytes)
+    (MEDIA / file.name).write_bytes(file.data)
+    return f"/media/{file.name}"
+
+
+editor = MarkdownEditor(
+    upload_handler=store,
+    accepted_filetypes=["image/*", "video/*", "audio/*"],
+    height=400,
+)
+
+pn.serve(editor, static_dirs={"media": str(MEDIA)})
+```
+
+The URL is formatted by the type of the file: `![name](url)` for an image, `<video src="url" controls></video>` or `<audio src="url" controls></audio>` for media, and `[name](url)` for anything else. Return a markdown or HTML snippet instead to control the insertion yourself, or `None` to reject the file. The handler may be a coroutine function, and `value` only changes once it returns: until then the editor marks the spot the file will land in, and the marker follows the text the user keeps typing.
+
+`accepted_filetypes` and `max_upload_size` (10MB by default) are applied in the browser and re-applied on the server, so a rejected file never reaches the handler.
+
 ### Choosing the toolbar
 
 ```python
@@ -152,6 +189,9 @@ card.servable()
 | `value` | str | `""` | The markdown source. Updates per keystroke unless `on_keyup` is disabled |
 | `value_input` | str | `""` | The markdown source, always updated per keystroke |
 | `on_keyup` | bool | `True` | Whether `value` updates per keystroke or on blur |
+| `upload_handler` | callable | `None` | Called with an `UploadedFile` when a file is pasted or dropped; returns a URL, a snippet or `None` |
+| `accepted_filetypes` | list | `[]` | MIME types, wildcards or extensions an upload accepts; empty accepts everything |
+| `max_upload_size` | int | `10_000_000` | Largest pasted or dropped file in bytes; `None` disables the check |
 | `toolbar` | bool \| list | `True` | The formatting toolbar: `True`, `False` or a list of actions |
 | `preview` | bool | `False` | Show the live preview |
 | `preview_location` | str | `"right"` | `"right"` or `"bottom"` |
@@ -212,8 +252,11 @@ pixi run -e test-ui test-ui          # Playwright UI tests
 ### Examples
 
 ```bash
-panel serve examples/apps/notes.py examples/apps/image_upload.py --dev
+panel serve examples/apps/notes.py examples/apps/uploads.py \
+    --static-dirs media=examples/apps/media --dev
 ```
+
+`uploads.py` stores what you paste or drop in `examples/apps/media`, which is why it needs the static directory.
 
 ### Documentation
 

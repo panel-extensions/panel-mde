@@ -1,10 +1,12 @@
+import asyncio
 import re
 
 import pytest
 from panel.pane import Markdown
 
-from panel_mde import DEFAULT_TOOLBAR, TOOLBAR_ACTIONS, MarkdownEditor
+from panel_mde import DEFAULT_TOOLBAR, TOOLBAR_ACTIONS, MarkdownEditor, UploadedFile
 from panel_mde.base import EASYMDE_VERSION, MODELS_PATH
+from panel_mde.upload import accepts, format_upload, guess_mime_type, is_snippet
 
 
 def test_value_positional():
@@ -152,6 +154,225 @@ class TestPreview:
 
         with pytest.raises(ValueError):
             MarkdownEditor(preview_location="left")
+
+
+def png(name="photo.png", data=b"\x89PNG"):
+    return {"kind": "upload", "id": "u1", "name": name, "mime_type": "image/png", "data": data}
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    """Collects the messages an editor sends to the frontend."""
+    messages = []
+    monkeypatch.setattr(MarkdownEditor, "_send_msg", lambda self, data: messages.append(data))
+    return messages
+
+
+class TestUploadedFile:
+
+    def test_extension(self):
+        assert UploadedFile("photo.PNG", "image/png", 4, b"data").extension == ".png"
+        assert UploadedFile("archive.tar.gz", "application/gzip", 4, b"data").extension == ".gz"
+        assert UploadedFile("README", "text/plain", 4, b"data").extension == ""
+        assert UploadedFile(".gitignore", "text/plain", 4, b"data").extension == ""
+
+    def test_guess_mime_type(self):
+        assert guess_mime_type("clip.mp4", "video/quicktime") == "video/quicktime"
+        assert guess_mime_type("clip.mp4") == "video/mp4"
+        assert guess_mime_type("mystery.zyx") == "application/octet-stream"
+
+
+class TestFormatUpload:
+
+    def test_image(self):
+        file = UploadedFile("photo.png", "image/png", 4, b"data")
+
+        assert format_upload("/media/photo.png", file) == "![photo.png](/media/photo.png)"
+
+    def test_video(self):
+        file = UploadedFile("clip.mp4", "video/mp4", 4, b"data")
+
+        assert format_upload("/media/clip.mp4", file) == '<video src="/media/clip.mp4" controls></video>'
+
+    def test_audio(self):
+        file = UploadedFile("note.m4a", "audio/mp4", 4, b"data")
+
+        assert format_upload("/media/note.m4a", file) == '<audio src="/media/note.m4a" controls></audio>'
+
+    def test_other_types_become_a_link(self):
+        file = UploadedFile("notes.pdf", "application/pdf", 4, b"data")
+
+        assert format_upload("/media/notes.pdf", file) == "[notes.pdf](/media/notes.pdf)"
+
+    def test_snippet_inserted_verbatim(self):
+        file = UploadedFile("photo.png", "image/png", 4, b"data")
+
+        for snippet in (
+            "![alt](/media/photo.png)",
+            "<img src='/media/photo.png' width='200'>",
+            "[photo][ref]\n\n[ref]: /media/photo.png",
+            "see /media/photo.png",
+        ):
+            assert format_upload(snippet, file) == snippet
+
+    def test_url_with_parentheses_wrapped(self):
+        file = UploadedFile("photo.png", "image/png", 4, b"data")
+
+        assert format_upload("/media/photo(1).png", file) == "![photo.png](</media/photo(1).png>)"
+
+    def test_brackets_in_name_escaped(self):
+        file = UploadedFile("a[1].png", "image/png", 4, b"data")
+
+        assert format_upload("/media/a.png", file) == r"![a\[1\].png](/media/a.png)"
+
+    def test_media_url_escaped(self):
+        file = UploadedFile("clip.mp4", "video/mp4", 4, b"data")
+
+        assert format_upload('/media/"x".mp4', file) == '<video src="/media/&quot;x&quot;.mp4" controls></video>'
+
+    def test_is_snippet(self):
+        assert not is_snippet("https://example.com/a.png")
+        assert is_snippet("![](a.png)")
+        assert is_snippet("<video src='a.mp4'></video>")
+        assert is_snippet("[a](b.png)")
+        assert is_snippet("a b")
+
+
+class TestAccepts:
+
+    file = UploadedFile("photo.png", "image/png", 4, b"data")
+
+    def test_empty_accepts_everything(self):
+        assert accepts([], self.file)
+
+    def test_mime_type(self):
+        assert accepts(["image/png"], self.file)
+        assert not accepts(["image/jpeg"], self.file)
+
+    def test_wildcard(self):
+        assert accepts(["image/*"], self.file)
+        assert not accepts(["video/*"], self.file)
+
+    def test_extension(self):
+        assert accepts([".PNG"], self.file)
+        assert not accepts([".jpg"], self.file)
+
+    def test_any_pattern_matches(self):
+        assert accepts([".mp4", "image/*"], self.file)
+
+
+class TestUpload:
+
+    def test_disabled_without_handler(self):
+        assert MarkdownEditor()._upload_enabled is False
+
+    def test_enabled_with_handler(self):
+        editor = MarkdownEditor(upload_handler=lambda file: "/media/x.png")
+
+        assert editor._upload_enabled is True
+
+        editor.upload_handler = None
+        assert editor._upload_enabled is False
+
+    def test_handler_is_not_synced(self):
+        editor = MarkdownEditor(upload_handler=lambda file: "/media/x.png")
+
+        assert "upload_handler" not in editor._data_model.properties()
+        assert "upload_handler" not in editor._process_param_change({"upload_handler": print})
+
+    def test_handler_receives_the_file(self, sent):
+        received = []
+        editor = MarkdownEditor(upload_handler=lambda file: received.append(file) or "/media/photo.png")
+        editor._handle_msg(png())
+
+        assert len(received) == 1
+        file = received[0]
+        assert (file.name, file.mime_type, file.size, file.data) == ("photo.png", "image/png", 4, b"\x89PNG")
+        assert sent == [{"kind": "uploaded", "id": "u1", "text": "![photo.png](/media/photo.png)"}]
+
+    def test_mime_type_guessed_when_missing(self, sent):
+        received = []
+        editor = MarkdownEditor(upload_handler=lambda file: received.append(file) or "/media/clip.mp4")
+        editor._handle_msg(dict(png(name="clip.mp4"), mime_type=""))
+
+        assert received[0].mime_type == "video/mp4"
+        assert sent[0]["text"] == '<video src="/media/clip.mp4" controls></video>'
+
+    def test_snippet_result(self, sent):
+        editor = MarkdownEditor(upload_handler=lambda file: f"![{file.name}](/x.png 'a title')")
+        editor._handle_msg(png())
+
+        assert sent[0]["text"] == "![photo.png](/x.png 'a title')"
+
+    def test_none_rejects(self, sent):
+        editor = MarkdownEditor(upload_handler=lambda file: None)
+        editor._handle_msg(png())
+
+        assert sent == [{"kind": "upload_failed", "id": "u1", "message": "photo.png was rejected."}]
+
+    def test_no_handler_reports_failure(self, sent):
+        MarkdownEditor()._handle_msg(png())
+
+        assert sent == [{"kind": "upload_failed", "id": "u1", "message": "No upload_handler is set."}]
+
+    def test_oversized_file_rejected_without_calling_the_handler(self, sent):
+        called = []
+        editor = MarkdownEditor(upload_handler=called.append, max_upload_size=2)
+        editor._handle_msg(png())
+
+        assert called == []
+        assert sent[0]["message"] == "photo.png is larger than max_upload_size."
+
+    def test_no_limit(self, sent):
+        editor = MarkdownEditor(upload_handler=lambda file: "/media/photo.png", max_upload_size=None)
+        editor._handle_msg(png())
+
+        assert sent[0]["kind"] == "uploaded"
+
+    def test_unaccepted_type_rejected_without_calling_the_handler(self, sent):
+        called = []
+        editor = MarkdownEditor(upload_handler=called.append, accepted_filetypes=["video/*"])
+        editor._handle_msg(png())
+
+        assert called == []
+        assert sent[0]["message"] == "photo.png is not an accepted file type."
+
+    def test_handler_exception_reports_failure(self, sent):
+        def boom(file):
+            raise RuntimeError("storage is down")
+
+        editor = MarkdownEditor(upload_handler=boom)
+        with pytest.raises(RuntimeError, match="storage is down"):
+            editor._handle_msg(png())
+
+        assert sent == [{"kind": "upload_failed", "id": "u1", "message": "Uploading photo.png failed."}]
+
+    def test_non_string_result_reports_failure(self, sent):
+        editor = MarkdownEditor(upload_handler=lambda file: 42)
+        with pytest.raises(ValueError, match="must return a URL"):
+            editor._handle_msg(png())
+
+        assert sent[0]["kind"] == "upload_failed"
+
+    def test_other_messages_ignored(self, sent):
+        called = []
+        editor = MarkdownEditor(upload_handler=called.append)
+        editor._handle_msg({"kind": "something-else"})
+        editor._handle_msg("nonsense")
+
+        assert (called, sent) == ([], [])
+
+    async def test_async_handler(self, sent):
+        async def store(file):
+            await asyncio.sleep(0)
+            return f"/media/{file.name}"
+
+        editor = MarkdownEditor(upload_handler=store)
+        editor._handle_msg(png())
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        assert sent == [{"kind": "uploaded", "id": "u1", "text": "![photo.png](/media/photo.png)"}]
 
 
 class TestAssets:

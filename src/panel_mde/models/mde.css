@@ -20,6 +20,8 @@
   --pnmde-on-surface: var(--panel-on-surface-color, #24292f);
   --pnmde-muted: color-mix(in srgb, var(--pnmde-on-surface) 55%, transparent);
   --pnmde-gap: 0.5rem;
+  --pnmde-handle: 0.75rem;
+  --pnmde-split: 50%;
 
   display: flex;
   flex: 1 1 auto;
@@ -55,9 +57,68 @@
   background: var(--pnmde-surface);
 }
 
+/* The two panes split the container at --pnmde-split, which the handle between
+   them drags. Sizing the editor from its content instead lets a long line grow
+   it and squeeze the preview down to nothing. The handle takes the place of the
+   gap, and half of it comes off each pane so the split lands where the handle
+   is drawn. */
+.pnmde-root.pnmde-has-preview {
+  gap: 0;
+}
+
+.pnmde-root.pnmde-has-preview .pnmde-editor {
+  flex: 0 0 calc(var(--pnmde-split) - var(--pnmde-handle) / 2);
+}
+
 .pnmde-root.pnmde-has-preview .pnmde-preview {
   display: block;
-  flex: 1 1 50%;
+  flex: 1 1 0;
+}
+
+/* --- Splitter --------------------------------------------------------- */
+
+.pnmde-splitter {
+  display: none;
+  position: relative;
+  flex: 0 0 var(--pnmde-handle);
+  cursor: col-resize;
+  /* Let a touch drag reach the pointer handlers rather than scrolling. */
+  touch-action: none;
+}
+
+.pnmde-root.pnmde-has-preview .pnmde-splitter {
+  display: block;
+}
+
+.pnmde-root.pnmde-preview-bottom .pnmde-splitter {
+  cursor: row-resize;
+}
+
+.pnmde-splitter::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 100%;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: var(--pnmde-border);
+}
+
+.pnmde-root.pnmde-preview-bottom .pnmde-splitter::before {
+  width: 100%;
+  height: 2px;
+}
+
+.pnmde-splitter:hover::before,
+.pnmde-splitter:focus-visible::before,
+.pnmde-splitter.pnmde-splitter-active::before {
+  background: color-mix(in srgb, var(--pnmde-on-surface) 45%, transparent);
+}
+
+.pnmde-splitter:focus {
+  outline: none;
 }
 
 /* --- EasyMDE container ------------------------------------------------- */
@@ -169,6 +230,32 @@
 
 .pnmde-root.pnmde-disabled .CodeMirror {
   background: color-mix(in srgb, var(--pnmde-on-surface) 4%, var(--pnmde-surface));
+}
+
+/* --- Uploads ---------------------------------------------------------- */
+
+/* Marks where a pasted or dropped file will land while its upload handler
+   runs. A CodeMirror bookmark widget, so it takes up no room in the document
+   and never reaches `value`. */
+.pnmde-editor .pnmde-upload {
+  display: inline-block;
+  margin: 0 0.15em;
+  padding: 0 0.4em;
+  border: 1px dashed var(--pnmde-border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--panel-primary-color, #0969da) 10%, transparent);
+  color: var(--pnmde-muted);
+  font-family: var(--panel-font, inherit);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.pnmde-editor .pnmde-upload-error {
+  border-color: var(--panel-danger-color, #d1242f);
+  border-style: solid;
+  background: color-mix(in srgb, var(--panel-danger-color, #d1242f) 12%, transparent);
+  color: var(--panel-danger-color, #d1242f);
+  white-space: normal;
 }
 
 /* --- Preview pane ----------------------------------------------------- */
