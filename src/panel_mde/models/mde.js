@@ -252,6 +252,13 @@ export function render({model, el, view}) {
   // Uploads waiting on a URL from the upload handler, by message id.
   const uploads = new Map()
   let upload_count = 0
+  // Set by a capture-phase listener just ahead of EasyMDE's own paste
+  // handler. A paste carrying text/plain is a text paste -- copying cells
+  // from a spreadsheet also puts a bitmap of the range on the clipboard,
+  // and EasyMDE uploads every file it finds there with no regard for the
+  // text arriving alongside it. Not needed for drop: dataTransfer.files is
+  // empty for a text drag, so there is nothing to skip.
+  let skip_clipboard_files = false
 
   function commit(final) {
     if (applying || editor == null) {
@@ -271,6 +278,9 @@ export function render({model, el, view}) {
   // file and is decided by the server, so the reply is handled below. onError
   // only drives EasyMDE's status bar, hence the marker in the document.
   async function upload(file, on_success, on_error) {
+    if (skip_clipboard_files) {
+      return
+    }
     const cm = editor?.codemirror
     if (cm == null) {
       return
@@ -425,6 +435,14 @@ export function render({model, el, view}) {
     })
 
     const cm = editor.codemirror
+    if (model._upload_enabled) {
+      // Capture phase, on an ancestor of the hidden input CodeMirror pastes
+      // into: that runs ahead of CodeMirror's own paste listener, which is
+      // what dispatches to EasyMDE's upload handler and, through it, upload().
+      cm.getWrapperElement().addEventListener("paste", (event) => {
+        skip_clipboard_files = Array.from(event.clipboardData?.types ?? []).includes("text/plain")
+      }, true)
+    }
     cm.on("change", () => commit(false))
     cm.on("blur", () => commit(true))
     // Matches panel.widgets.TextEditor: Ctrl/Cmd+Enter commits `value`
