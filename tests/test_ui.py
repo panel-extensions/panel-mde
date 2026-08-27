@@ -40,9 +40,15 @@ def click_editor(page):
 # scroller) to the handlers EasyMDE registers, which is what turns a file in
 # the clipboard or in a drag into an upload.
 DISPATCH_FILE = """
-(el, {name, mime_type, size, event}) => {
+(el, {name, mime_type, size, event, text, html}) => {
   const transfer = new DataTransfer()
   transfer.items.add(new File([new Uint8Array(size)], name, {type: mime_type}))
+  if (text != null) {
+    transfer.items.add(text, "text/plain")
+  }
+  if (html != null) {
+    transfer.items.add(html, "text/html")
+  }
   const init = {bubbles: true, cancelable: true}
   el.dispatchEvent(event === "paste"
     ? new ClipboardEvent("paste", {...init, clipboardData: transfer})
@@ -51,9 +57,9 @@ DISPATCH_FILE = """
 """
 
 
-def paste_file(page, name="photo.png", mime_type="image/png", size=8):
+def paste_file(page, name="photo.png", mime_type="image/png", size=8, text=None, html=None):
     page.locator('.CodeMirror textarea').evaluate(
-        DISPATCH_FILE, {"name": name, "mime_type": mime_type, "size": size, "event": "paste"}
+        DISPATCH_FILE, {"name": name, "mime_type": mime_type, "size": size, "event": "paste", "text": text, "html": html}
     )
 
 
@@ -605,6 +611,34 @@ class TestUpload:
         wait_until(lambda: editor.value == "Before: ![photo.png](/media/photo.png)", page)
         assert len(received) == 1
         assert (received[0].name, received[0].mime_type, received[0].data) == ("photo.png", "image/png", b"\x00" * 8)
+
+    def test_spreadsheet_paste_skips_the_upload(self, page):
+        """Copying cells from a spreadsheet puts text/plain, text/html and a
+        bitmap of the range on the clipboard; only the text is wanted."""
+        called = []
+        editor = MarkdownEditor(upload_handler=called.append)
+        serve_component(page, editor)
+
+        click_editor(page)
+        paste_file(page, text="a\tb\nc\td", html="<table><tr><td>a</td></tr></table>")
+
+        wait_until(lambda: editor.value == "a\tb\nc\td", page)
+        page.wait_for_timeout(400)
+        assert called == []
+        expect(page.locator('.pnmde-upload')).to_have_count(0)
+
+    def test_image_copied_from_a_web_page_still_uploads(self, page):
+        """text/html plus an image file is what copying an image from a web
+        page puts on the clipboard; that paste should still upload."""
+        received = []
+        editor = MarkdownEditor(upload_handler=lambda file: received.append(file) or f"/media/{file.name}")
+        serve_component(page, editor)
+
+        click_editor(page)
+        paste_file(page, html="<img src=\"https://example.com/photo.png\">")
+
+        wait_until(lambda: editor.value == "![photo.png](/media/photo.png)", page)
+        assert len(received) == 1
 
     def test_drop_inserts_a_video_tag(self, page):
         editor = MarkdownEditor(upload_handler=lambda file: f"/media/{file.name}")
